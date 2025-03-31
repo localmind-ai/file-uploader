@@ -102,12 +102,19 @@ class FileTracker:
         
         # First check quick metadata (size and mtime)
         if tracked_data["size"] != file_metadata["size"] or tracked_data["mtime"] != file_metadata["mtime"]:
+            logger.debug(f"File {file_path} changed: size/mtime differs")
+            logger.debug(f"  Tracked: size={tracked_data['size']}, mtime={tracked_data['mtime']}")
+            logger.debug(f"  Current: size={file_metadata['size']}, mtime={file_metadata['mtime']}")
             return True
         
         # If metadata matches but hash differs, file content has changed
         if tracked_data["hash"] != file_metadata["hash"]:
+            logger.debug(f"File {file_path} changed: hash differs")
+            logger.debug(f"  Tracked hash: {tracked_data['hash']}")
+            logger.debug(f"  Current hash: {file_metadata['hash']}")
             return True
         
+        logger.debug(f"File {file_path} unchanged")
         return False
     
     def get_tracked_files(self, local_path: str) -> Set[str]:
@@ -164,12 +171,21 @@ class FileUploader:
             return None
 
         try:
+            # Check if file with same name already exists on remote
+            filename = os.path.basename(file_path)
+            remote_files = self.list_remote_files(folder_id)
+            
+            # If file already exists, return its ID
+            if filename in remote_files:
+                file_id = remote_files[filename]
+                logger.info(f"File already exists remotely: {filename}, ID: {file_id}")
+                return file_id
+                
             url = f"{self.base_url}/localmind/public-upload/file"
 
             with open(file_path, 'rb') as f:
                 files = {
-                    'file': (os.path.basename(file_path), f,
-                                   mimetypes.guess_type(file_path)[0])
+                    'file': (filename, f, mimetypes.guess_type(file_path)[0])
                 }
                 # Determine parser engine based on file type
                 file_extension = os.path.splitext(file_path)[1].lower()
@@ -299,24 +315,37 @@ class FileUploader:
             "failed": 0
         }
         
+        # Fetch remote files first
+        remote_files_dict = self.list_remote_files(folder_id)
+        remote_filenames = set(remote_files_dict.keys())
+        logger.info(f"Found {len(remote_filenames)} files in remote folder {folder_id}")
+        
         # Get current files in directory
         current_files = set()
+        local_filenames_map = {}  # Maps filename -> full path
+        
         for root, _, files in os.walk(local_path):
             for filename in files:
                 file_path = os.path.join(root, filename)
                 if self.validate_file(file_path):
                     current_files.add(file_path)
+                    # Map the basename to full path for later lookups
+                    local_filenames_map[os.path.basename(file_path)] = file_path
         
         # Get previously tracked files
         tracked_files = self.tracker.get_tracked_files(local_path)
         
-        # Identify files to add, update, or delete
-        new_files = current_files - tracked_files
-        existing_files = current_files.intersection(tracked_files)
-        deleted_files = tracked_files - current_files
+        # Get local filenames (basenames only)
+        local_filenames = set(os.path.basename(f) for f in current_files)
+        
+        # Identify files by name comparison
+        new_file_names = local_filenames - remote_filenames
+        existing_file_names = local_filenames.intersection(remote_filenames)
+        deleted_file_names = remote_filenames - local_filenames
         
         # Process new files (upload)
-        for file_path in new_files:
+        for filename in new_file_names:
+            file_path = local_filenames_map[filename]
             metadata = self.tracker.get_file_metadata(file_path)
             if not metadata:
                 logger.error(f"Failed to get metadata for {file_path}")
@@ -331,54 +360,55 @@ class FileUploader:
                 stats["failed"] += 1
         
         # Process existing files (check for changes)
-        for file_path in existing_files:
+        for filename in existing_file_names:
+            file_path = local_filenames_map[filename]
             metadata = self.tracker.get_file_metadata(file_path)
             if not metadata:
                 logger.error(f"Failed to get metadata for {file_path}")
                 stats["failed"] += 1
                 continue
+            
+            # Get the remote file ID
+            remote_file_id = remote_files_dict[filename]
+            
+            # Update tracking data with the remote ID if not already tracked
+            if file_path not in tracked_files:
+                self.tracker.update_file_tracking(local_path, remote_file_id, metadata)
+                stats["skipped"] += 1
+                continue
                 
             if self.tracker.is_file_changed(local_path, file_path, metadata):
                 # File changed, delete old version and upload new
-                old_file_id = self.tracker.get_file_id(local_path, file_path)
-                if old_file_id:
-                    # Delete old file
-                    if self.delete_file(old_file_id, folder_id):
-                        # Upload new version
-                        new_file_id = self.upload_file(file_path, folder_id)
-                        if new_file_id:
-                            self.tracker.update_file_tracking(local_path, new_file_id, metadata)
-                            stats["updated"] += 1
-                        else:
-                            stats["failed"] += 1
-                    else:
-                        stats["failed"] += 1
-                else:
-                    logger.warning(f"No file ID found for tracked file: {file_path}")
-                    # Try to upload as new
+                if self.delete_file(remote_file_id, folder_id):
+                    # Upload new version
                     new_file_id = self.upload_file(file_path, folder_id)
                     if new_file_id:
                         self.tracker.update_file_tracking(local_path, new_file_id, metadata)
-                        stats["added"] += 1
+                        stats["updated"] += 1
                     else:
                         stats["failed"] += 1
+                else:
+                    stats["failed"] += 1
             else:
+                # Make sure tracking data has the correct remote ID
+                old_file_id = self.tracker.get_file_id(local_path, file_path)
+                if old_file_id != remote_file_id:
+                    self.tracker.update_file_tracking(local_path, remote_file_id, metadata)
+                
                 # File unchanged
                 stats["skipped"] += 1
         
         # Process deleted files
-        for file_path in deleted_files:
-            file_id = self.tracker.get_file_id(local_path, file_path)
-            if file_id:
-                if self.delete_file(file_id, folder_id):
-                    self.tracker.remove_file_tracking(local_path, file_path)
-                    stats["deleted"] += 1
-                else:
-                    stats["failed"] += 1
-            else:
-                logger.warning(f"No file ID found for tracked file to delete: {file_path}")
-                self.tracker.remove_file_tracking(local_path, file_path)
+        for filename in deleted_file_names:
+            file_id = remote_files_dict[filename]
+            if self.delete_file(file_id, folder_id):
+                # Find and remove from tracking if it exists
+                deleted_paths = [p for p in tracked_files if os.path.basename(p) == filename]
+                for path in deleted_paths:
+                    self.tracker.remove_file_tracking(local_path, path)
                 stats["deleted"] += 1
+            else:
+                stats["failed"] += 1
         
         logger.info(f"Directory sync complete for {local_path}. Stats: {stats}")
         return stats
