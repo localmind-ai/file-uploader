@@ -2,10 +2,13 @@ import os
 import argparse
 import logging
 import json
-from typing import List, Optional, Dict
+import hashlib
+import time
+from typing import List, Optional, Dict, Set
 import mimetypes
 import requests
 from pathlib import Path
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -19,18 +22,122 @@ logging.basicConfig(
 
 logger = logging.getLogger('file_uploader')
 
+class FileTracker:
+    """Track file changes between syncs."""
+    
+    def __init__(self, tracking_file: str = "file_tracking.json"):
+        """Initialize with tracking file path."""
+        self.tracking_file = tracking_file
+        self.tracking_data = self._load_tracking_data()
+    
+    def _load_tracking_data(self) -> Dict:
+        """Load tracking data from file or initialize empty dict."""
+        if os.path.exists(self.tracking_file):
+            try:
+                with open(self.tracking_file, 'r') as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                logger.error(f"Invalid tracking file format: {self.tracking_file}")
+                return {}
+        return {}
+    
+    def _save_tracking_data(self):
+        """Save tracking data to file."""
+        with open(self.tracking_file, 'w') as f:
+            json.dump(self.tracking_data, f, indent=2)
+    
+    def compute_file_hash(self, file_path: str) -> Optional[str]:
+        """Compute MD5 hash of file content."""
+        try:
+            md5_hash = hashlib.md5()
+            with open(file_path, "rb") as f:
+                # Read file in chunks for memory efficiency
+                for chunk in iter(lambda: f.read(4096), b""):
+                    md5_hash.update(chunk)
+            return md5_hash.hexdigest()
+        except Exception as e:
+            logger.error(f"Error computing hash for {file_path}: {str(e)}")
+            return None
+    
+    def get_file_metadata(self, file_path: str) -> Optional[Dict]:
+        """Get file metadata including size, modification time, and hash."""
+        try:
+            stat = os.stat(file_path)
+            return {
+                "path": file_path,
+                "size": stat.st_size,
+                "mtime": stat.st_mtime,
+                "hash": self.compute_file_hash(file_path)
+            }
+        except Exception as e:
+            logger.error(f"Error getting metadata for {file_path}: {str(e)}")
+            return None
+    
+    def update_file_tracking(self, local_path: str, file_id: str, file_metadata: Dict):
+        """Update tracking data for a file."""
+        if local_path not in self.tracking_data:
+            self.tracking_data[local_path] = {}
+        
+        self.tracking_data[local_path][file_metadata["path"]] = {
+            "file_id": file_id,
+            "size": file_metadata["size"],
+            "mtime": file_metadata["mtime"],
+            "hash": file_metadata["hash"],
+            "last_synced": time.time()
+        }
+        self._save_tracking_data()
+    
+    def remove_file_tracking(self, local_path: str, file_path: str):
+        """Remove a file from tracking data."""
+        if local_path in self.tracking_data and file_path in self.tracking_data[local_path]:
+            del self.tracking_data[local_path][file_path]
+            self._save_tracking_data()
+    
+    def is_file_changed(self, local_path: str, file_path: str, file_metadata: Dict) -> bool:
+        """Check if file has changed since last sync."""
+        if local_path not in self.tracking_data or file_path not in self.tracking_data[local_path]:
+            return True  # New file
+        
+        tracked_data = self.tracking_data[local_path][file_path]
+        
+        # First check quick metadata (size and mtime)
+        if tracked_data["size"] != file_metadata["size"] or tracked_data["mtime"] != file_metadata["mtime"]:
+            return True
+        
+        # If metadata matches but hash differs, file content has changed
+        if tracked_data["hash"] != file_metadata["hash"]:
+            return True
+        
+        return False
+    
+    def get_tracked_files(self, local_path: str) -> Set[str]:
+        """Get set of tracked files for a local path."""
+        if local_path in self.tracking_data:
+            return set(self.tracking_data[local_path].keys())
+        return set()
+    
+    def get_file_id(self, local_path: str, file_path: str) -> Optional[str]:
+        """Get remote file ID for a tracked file."""
+        if local_path in self.tracking_data and file_path in self.tracking_data[local_path]:
+            return self.tracking_data[local_path][file_path]["file_id"]
+        return None
+
+
 class FileUploader:
-    def __init__(self, base_url: str, api_key: str, folder_mapping: Dict[str, str], verify_ssl: bool = False):
+    def __init__(self, base_url: str, api_key: str, folder_mapping: Dict[str, str], 
+                 tracker: FileTracker, verify_ssl: bool = False):
         """Initialize the FileUploader with configuration."""
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.folder_mapping = folder_mapping
+        self.tracker = tracker
         self.verify_ssl = verify_ssl
         self.supported_types = {'.pdf', '.docx', '.txt', '.pptx', '.xlsx'}
         # Define which file types use ultraparse
         self.ultraparse_types = {'.pdf', '.docx', '.pptx'}
         self.headers = {
-            'Authorization': f'Bearer {api_key}'
+            'Authorization': f'Bearer {api_key}',
+            'Accept': 'application/json'
         }
 
         if not verify_ssl:
@@ -51,8 +158,8 @@ class FileUploader:
 
         return True
 
-    def upload_file(self, file_path: str, folder_id: str) -> Optional[dict]:
-        """Upload a single file to the API."""
+    def upload_file(self, file_path: str, folder_id: str) -> Optional[str]:
+        """Upload a single file to the API. Returns the file ID if successful."""
         if not self.validate_file(file_path):
             return None
 
@@ -81,16 +188,21 @@ class FileUploader:
                     files=files,
                     params=params,
                     headers=self.headers,
-                    verify=self.verify_ssl  # Add SSL verification parameter
+                    verify=self.verify_ssl
                 )
 
                 response.raise_for_status()
                 result = response.json()
-
-                logger.info(f"Successfully uploaded file: {file_path}")
+                
+                # Extract file ID from response
+                file_id = result.get("id")
+                if not file_id:
+                    logger.warning(f"No file ID in response for {file_path}: {result}")
+                
+                logger.info(f"Successfully uploaded file: {file_path}, ID: {file_id}")
                 logger.debug(f"API Response: {result}")
 
-                return result
+                return file_id
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Upload failed for {file_path}: {str(e)}")
@@ -98,40 +210,194 @@ class FileUploader:
                 logger.error(f"Server response: {e.response.text}")
             return None
 
-    def upload_directory(self, local_path: str, folder_id: str) -> List[dict]:
-        """Upload all supported files from a specific directory."""
-        successful_uploads = []
+    def delete_file(self, file_id: str, folder_id: str) -> bool:
+        """Delete a file from the remote system."""
+        try:
+            url = f"{self.base_url}/localmind/public-upload/files"
+            
+            params = {
+                'folder_id': folder_id
+            }
+            
+            data = {
+                'file_ids': [file_id]
+            }
+            
+            logger.info(f"Deleting file with ID: {file_id}")
+            response = requests.delete(
+                url,
+                json=data,
+                params=params,
+                headers=self.headers,
+                verify=self.verify_ssl
+            )
+            
+            response.raise_for_status()
+            logger.info(f"Successfully deleted file with ID: {file_id}")
+            return True
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Delete failed for file ID {file_id}: {str(e)}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                logger.error(f"Server response: {e.response.text}")
+            return False
 
+    def list_remote_files(self, folder_id: str) -> Dict[str, str]:
+        """List files in a remote folder. Returns a dict of filename to file ID."""
+        try:
+            url = f"{self.base_url}/localmind/public-upload/folders/{folder_id}/files"
+            
+            logger.info(f"Listing files in folder ID: {folder_id}")
+            response = requests.get(
+                url,
+                headers=self.headers,
+                verify=self.verify_ssl
+            )
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            files_dict = {}
+            for file_info in result.get("data", []):
+                file_id = file_info.get("id")
+                file_name = file_info.get("name")
+                if file_id and file_name:
+                    files_dict[file_name] = file_id
+            
+            logger.info(f"Found {len(files_dict)} files in folder ID: {folder_id}")
+            return files_dict
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"List files failed for folder ID {folder_id}: {str(e)}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                logger.error(f"Server response: {e.response.text}")
+            return {}
+
+    def sync_directory(self, local_path: str, folder_id: str) -> Dict:
+        """
+        Synchronize a local directory with a remote folder.
+        
+        Performs these operations:
+        1. Upload new files
+        2. Update changed files (delete + upload)
+        3. Delete files that no longer exist locally
+        
+        Returns statistics about operations performed.
+        """
         if not os.path.isdir(local_path):
             logger.error(f"Directory does not exist: {local_path}")
-            return successful_uploads
+            return {"error": f"Directory does not exist: {local_path}"}
 
-        logger.info(f"Processing directory: {local_path} with folder ID: {folder_id}")
-
+        logger.info(f"Syncing directory: {local_path} with folder ID: {folder_id}")
+        
+        # Track statistics
+        stats = {
+            "added": 0,
+            "updated": 0,
+            "deleted": 0,
+            "skipped": 0,
+            "failed": 0
+        }
+        
+        # Get current files in directory
+        current_files = set()
         for root, _, files in os.walk(local_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                result = self.upload_file(file_path, folder_id)
-                if result:
-                    successful_uploads.append(result)
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                if self.validate_file(file_path):
+                    current_files.add(file_path)
+        
+        # Get previously tracked files
+        tracked_files = self.tracker.get_tracked_files(local_path)
+        
+        # Identify files to add, update, or delete
+        new_files = current_files - tracked_files
+        existing_files = current_files.intersection(tracked_files)
+        deleted_files = tracked_files - current_files
+        
+        # Process new files (upload)
+        for file_path in new_files:
+            metadata = self.tracker.get_file_metadata(file_path)
+            if not metadata:
+                logger.error(f"Failed to get metadata for {file_path}")
+                stats["failed"] += 1
+                continue
+                
+            file_id = self.upload_file(file_path, folder_id)
+            if file_id:
+                self.tracker.update_file_tracking(local_path, file_id, metadata)
+                stats["added"] += 1
+            else:
+                stats["failed"] += 1
+        
+        # Process existing files (check for changes)
+        for file_path in existing_files:
+            metadata = self.tracker.get_file_metadata(file_path)
+            if not metadata:
+                logger.error(f"Failed to get metadata for {file_path}")
+                stats["failed"] += 1
+                continue
+                
+            if self.tracker.is_file_changed(local_path, file_path, metadata):
+                # File changed, delete old version and upload new
+                old_file_id = self.tracker.get_file_id(local_path, file_path)
+                if old_file_id:
+                    # Delete old file
+                    if self.delete_file(old_file_id, folder_id):
+                        # Upload new version
+                        new_file_id = self.upload_file(file_path, folder_id)
+                        if new_file_id:
+                            self.tracker.update_file_tracking(local_path, new_file_id, metadata)
+                            stats["updated"] += 1
+                        else:
+                            stats["failed"] += 1
+                    else:
+                        stats["failed"] += 1
+                else:
+                    logger.warning(f"No file ID found for tracked file: {file_path}")
+                    # Try to upload as new
+                    new_file_id = self.upload_file(file_path, folder_id)
+                    if new_file_id:
+                        self.tracker.update_file_tracking(local_path, new_file_id, metadata)
+                        stats["added"] += 1
+                    else:
+                        stats["failed"] += 1
+            else:
+                # File unchanged
+                stats["skipped"] += 1
+        
+        # Process deleted files
+        for file_path in deleted_files:
+            file_id = self.tracker.get_file_id(local_path, file_path)
+            if file_id:
+                if self.delete_file(file_id, folder_id):
+                    self.tracker.remove_file_tracking(local_path, file_path)
+                    stats["deleted"] += 1
+                else:
+                    stats["failed"] += 1
+            else:
+                logger.warning(f"No file ID found for tracked file to delete: {file_path}")
+                self.tracker.remove_file_tracking(local_path, file_path)
+                stats["deleted"] += 1
+        
+        logger.info(f"Directory sync complete for {local_path}. Stats: {stats}")
+        return stats
 
-        logger.info(f"Completed uploading {len(successful_uploads)} files from {local_path} successfully")
-        return successful_uploads
-
-    def upload_all_mappings(self) -> Dict[str, List[dict]]:
-        """Upload files from all directory mappings."""
+    def sync_all_mappings(self) -> Dict[str, Dict]:
+        """Synchronize all directory mappings."""
         results = {}
 
         for local_path, folder_id in self.folder_mapping.items():
             if os.path.isdir(local_path):
-                dir_results = self.upload_directory(local_path, folder_id)
+                dir_results = self.sync_directory(local_path, folder_id)
                 results[local_path] = dir_results
-                logger.info(f"Directory {local_path}: Uploaded {len(dir_results)} files to folder ID {folder_id}")
+                logger.info(f"Directory {local_path}: Sync completed with folder ID {folder_id}")
             else:
                 logger.error(f"Directory does not exist: {local_path}")
-                results[local_path] = []
+                results[local_path] = {"error": "Directory does not exist"}
 
         return results
+
 
 def load_mapping_file(file_path: str) -> Dict[str, str]:
     """Load folder mappings from a JSON file."""
@@ -149,8 +415,9 @@ def load_mapping_file(file_path: str) -> Dict[str, str]:
         logger.error(f"Failed to load mapping file: {str(e)}")
         return {}
 
+
 def main():
-    parser = argparse.ArgumentParser(description='Upload files from directories to the API')
+    parser = argparse.ArgumentParser(description='Sync files between local directories and remote API')
     parser.add_argument('--base-url', required=True, help='Base URL of the API')
     parser.add_argument('--api-key', required=True, help='API key for authentication')
     
@@ -160,9 +427,13 @@ def main():
     mapping_group.add_argument('--mapping', action='append', nargs=2, metavar=('LOCAL_PATH', 'FOLDER_ID'),
                               help='Map a local directory to a remote folder ID (can be specified multiple times)')
     
-    # Single directory upload
-    parser.add_argument('--directory', help='Upload a specific local directory')
+    # Single directory sync
+    parser.add_argument('--directory', help='Sync a specific local directory')
     parser.add_argument('--folder-id', help='Remote folder ID for the specified directory')
+    
+    # Tracking file
+    parser.add_argument('--tracking-file', default='file_tracking.json',
+                       help='JSON file to track file changes (default: file_tracking.json)')
     
     parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
     parser.add_argument('--verify-ssl', action='store_true', help='Verify SSL certificates')
@@ -192,13 +463,25 @@ def main():
     
     logger.info(f"Using folder mappings: {folder_mapping}")
     
+    # Initialize file tracker
+    tracker = FileTracker(args.tracking_file)
+    
     # Create uploader with folder mapping
-    uploader = FileUploader(args.base_url, args.api_key, folder_mapping, verify_ssl=args.verify_ssl)
+    uploader = FileUploader(args.base_url, args.api_key, folder_mapping, tracker, verify_ssl=args.verify_ssl)
 
-    # Upload files from all mappings
-    results = uploader.upload_all_mappings()
-    total_files = sum(len(dir_results) for dir_results in results.values())
-    logger.info(f"Uploaded a total of {total_files} files from all directories")
+    # Sync files from all mappings
+    results = uploader.sync_all_mappings()
+    
+    # Calculate totals
+    total_added = sum(result.get("added", 0) for result in results.values())
+    total_updated = sum(result.get("updated", 0) for result in results.values())
+    total_deleted = sum(result.get("deleted", 0) for result in results.values())
+    total_skipped = sum(result.get("skipped", 0) for result in results.values())
+    total_failed = sum(result.get("failed", 0) for result in results.values())
+    
+    logger.info(f"Sync summary: Added {total_added}, Updated {total_updated}, " +
+                f"Deleted {total_deleted}, Skipped {total_skipped}, Failed {total_failed}")
+
 
 if __name__ == "__main__":
     main()
