@@ -1,4 +1,4 @@
-# Erweiterter Datei-Uploader
+# Datei-Upload per API an eine Localmind Instanz
 
 Dieses Skript ermöglicht das Hochladen von Dokumenten (PDF, DOCX, TXT, PPTX, XLSX) aus lokalen Verzeichnissen in die Localmind API mit konfigurierbaren Ordnerzuordnungen.
 
