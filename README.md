@@ -44,7 +44,7 @@ Erstellen Sie eine JSON-Datei mit Zuordnungen zwischen lokalen Pfaden und Remote
 Führen Sie das Skript mit dieser Zuordnungsdatei aus:
 
 ```bash
-python file_uploader.py --base-url https://meine-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL --mapping-file zuordnungen.json
+python file-uploader.py --base-url https://meine-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL --mapping-file zuordnungen.json
 ```
 
 ### 2. Zuordnungen über Kommandozeile
@@ -52,7 +52,7 @@ python file_uploader.py --base-url https://meine-instanz.localmind.url --api-key
 Definieren Sie Zuordnungen direkt über die Kommandozeile:
 
 ```bash
-python file_uploader.py --base-url https://meine-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
+python file-uploader.py --base-url https://meine-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
     --mapping /pfad/zu/berichte_2023 aaa44348-f11f-4829-bafc-e68bfeaa8003 \
     --mapping /pfad/zu/rechnungen_2024 9cf46791-dc7a-4d0c-b3ef-5a6259aa1975
 ```
@@ -62,7 +62,7 @@ python file_uploader.py --base-url https://meine-instanz.localmind.url --api-key
 Für ein einzelnes Verzeichnis:
 
 ```bash
-python file_uploader.py --base-url https://meine-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
+python file-uploader.py --base-url https://meine-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
     --directory /pfad/zu/finanzberichte --folder-id aaa44348-f11f-4829-bafc-e68bfeaa8003
 ```
 
@@ -93,7 +93,7 @@ Bei Problemen überprüfen Sie:
 ### Hochladen von Jahresberichten
 
 ```bash
-python file_uploader.py --base-url https://meine-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
+python file-uploader.py --base-url https://meine-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
     --mapping /daten/berichte/2023 aaa44348-f11f-4829-bafc-e68bfeaa8003 \
     --mapping /daten/berichte/2024 9cf46791-dc7a-4d0c-b3ef-5a6259aa1975
 ```
@@ -101,7 +101,7 @@ python file_uploader.py --base-url https://meine-instanz.localmind.url --api-key
 ### Hochladen verschiedener Dokumententypen in unterschiedliche Ordner
 
 ```bash
-python file_uploader.py --base-url https://meine-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
+python file-uploader.py --base-url https://meine-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
     --mapping /daten/rechnungen f8c47ef2-b0e4-4f0b-bda6-725a263b2509 \
     --mapping /daten/verträge d837154b-4513-4f67-81c3-99c4409e1d18 \
     --mapping /daten/präsentationen b8e941e5-a3e0-43a8-8c8f-778fb92ba4bb
