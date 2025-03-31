@@ -210,14 +210,39 @@ class FileUploader:
                 response.raise_for_status()
                 result = response.json()
                 
-                # Extract file ID from response
-                file_id = result.get("id")
-                if not file_id:
-                    logger.warning(f"No file ID in response for {file_path}: {result}")
+                # Extract file ID from response - API might return ID directly or in a data structure
+                file_id = None
+                if isinstance(result, dict):
+                    file_id = result.get("id")
+                elif isinstance(result, str):
+                    # Some APIs return just the ID as a string
+                    file_id = result
                 
-                logger.info(f"Successfully uploaded file: {file_path}, ID: {file_id}")
+                if not file_id:
+                    # Look for ID in other common response formats
+                    if isinstance(result, dict) and "data" in result and isinstance(result["data"], dict):
+                        file_id = result["data"].get("id")
+                
+                if not file_id and "status" in result:
+                    # The API appears to be returning a status but not a clear ID
+                    # This is a special case to handle the response format shown in logs
+                    logger.info(f"File appears to be uploaded successfully, but no clear ID was found")
+                    
+                    # Wait briefly for the server to process the upload
+                    time.sleep(1)
+                    
+                    # Try to find the file by listing files again
+                    updated_remote_files = self.list_remote_files(folder_id)
+                    if filename in updated_remote_files:
+                        file_id = updated_remote_files[filename]
+                        logger.info(f"Retrieved file ID after upload: {file_id}")
+                
+                if file_id:
+                    logger.info(f"Successfully uploaded file: {file_path}, ID: {file_id}")
+                else:
+                    logger.warning(f"No file ID found in response for {file_path}: {result}")
+                    
                 logger.debug(f"API Response: {result}")
-
                 return file_id
 
         except requests.exceptions.RequestException as e:
@@ -287,6 +312,7 @@ class FileUploader:
             logger.error(f"List files failed for folder ID {folder_id}: {str(e)}")
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
                 logger.error(f"Server response: {e.response.text}")
+            # Return empty dict instead of failing - this allows uploads to continue
             return {}
 
     def sync_directory(self, local_path: str, folder_id: str) -> Dict:
@@ -356,8 +382,19 @@ class FileUploader:
             if file_id:
                 self.tracker.update_file_tracking(local_path, file_id, metadata)
                 stats["added"] += 1
+                logger.info(f"Successfully added file: {file_path}")
             else:
-                stats["failed"] += 1
+                # Special handling for the case where upload succeeds but we don't get an ID
+                # Check if the file now exists remotely
+                updated_remote_files = self.list_remote_files(folder_id)
+                if filename in updated_remote_files and filename not in remote_filenames:
+                    # File was actually uploaded successfully
+                    file_id = updated_remote_files[filename]
+                    self.tracker.update_file_tracking(local_path, file_id, metadata)
+                    stats["added"] += 1
+                    logger.info(f"Successfully added file (verified after upload): {file_path}")
+                else:
+                    stats["failed"] += 1
         
         # Process existing files (check for changes)
         for filename in existing_file_names:
@@ -375,6 +412,7 @@ class FileUploader:
             if file_path not in tracked_files:
                 self.tracker.update_file_tracking(local_path, remote_file_id, metadata)
                 stats["skipped"] += 1
+                logger.info(f"File already exists remotely, updated tracking: {file_path}")
                 continue
                 
             if self.tracker.is_file_changed(local_path, file_path, metadata):
@@ -385,6 +423,7 @@ class FileUploader:
                     if new_file_id:
                         self.tracker.update_file_tracking(local_path, new_file_id, metadata)
                         stats["updated"] += 1
+                        logger.info(f"Successfully updated file: {file_path}")
                     else:
                         stats["failed"] += 1
                 else:
@@ -394,9 +433,11 @@ class FileUploader:
                 old_file_id = self.tracker.get_file_id(local_path, file_path)
                 if old_file_id != remote_file_id:
                     self.tracker.update_file_tracking(local_path, remote_file_id, metadata)
+                    logger.info(f"Updated tracking with correct remote ID for: {file_path}")
                 
                 # File unchanged
                 stats["skipped"] += 1
+                logger.info(f"Skipped unchanged file: {file_path}")
         
         # Process deleted files
         for filename in deleted_file_names:
@@ -407,6 +448,7 @@ class FileUploader:
                 for path in deleted_paths:
                     self.tracker.remove_file_tracking(local_path, path)
                 stats["deleted"] += 1
+                logger.info(f"Successfully deleted remote file: {filename}")
             else:
                 stats["failed"] += 1
         
