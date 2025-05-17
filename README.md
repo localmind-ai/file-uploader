@@ -4,7 +4,7 @@ This script enables synchronization of documents (PDF, DOCX, TXT, PPTX, XLSX) be
 
 ## Features
 
-* Full synchronization between local directories and remote folders
+* Full synchronization between local directories and remote Localmind folders
 * Automatic detection of added, updated, and deleted files
 * Tracking file to monitor file changes across program executions
 * Support for multiple file types (PDF, DOCX, TXT, PPTX, XLSX)
