@@ -1,6 +1,6 @@
 # File Uploader for Localmind
 
-This script enables synchronization of documents (PDF, DOCX, TXT, PPTX, XLSX) between local directories or mounted network shares and Localmind via an upload API with configurable folder mappings. It automatically detects added, updated, and deleted files and performs the appropriate operations.
+This script enables synchronization of documents (PDF, DOCX, TXT, PPTX, XLSX) between local directories or mounted network shares and your Localmind instance via an easy-to-use upload API with configurable folder mappings. It automatically detects added, updated, and deleted files and performs the appropriate operations.
 
 ## Features
 
