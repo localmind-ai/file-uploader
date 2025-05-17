@@ -1,176 +1,186 @@
-# File Uploader Script für Localmind
-Dieses Skript ermöglicht die Synchronisierung von Dokumenten (PDF, DOCX, TXT, PPTX, XLSX) zwischen lokalen Verzeichnissen und Localmind über eine Upload API mit konfigurierbaren Ordnerzuordnungen. Es erkennt automatisch hinzugefügte, aktualisierte und gelöschte Dateien und führt die entsprechenden Operationen aus.
+# File Uploader for Localmind
 
-## Funktionen
+This script enables synchronization of documents (PDF, DOCX, TXT, PPTX, XLSX) between local directories and Localmind via an upload API with configurable folder mappings. It automatically detects added, updated, and deleted files and performs the appropriate operations.
 
-- Vollständige Synchronisierung zwischen lokalen Verzeichnissen und Remote-Ordnern
-- Automatische Erkennung von hinzugefügten, aktualisierten und gelöschten Dateien
-- Tracking-Datei zur Überwachung von Dateiänderungen über Programmausführungen hinweg
-- Unterstützung mehrerer Dateitypen (PDF, DOCX, TXT, PPTX, XLSX)
-- Konfigurierbare Zuordnung zwischen lokalen Verzeichnissen und Remote-Ordner-IDs
-- Mehrere Zuordnungsmethoden (JSON-Datei, Kommandozeilen-Parameter)
-- Detaillierte Protokollierung des Synchronisationsvorgangs
-- Automatische Auswahl der geeigneten Parser-Engine basierend auf dem Dateityp
+## Features
 
-## Voraussetzungen
+* Full synchronization between local directories and remote folders
+* Automatic detection of added, updated, and deleted files
+* Tracking file to monitor file changes across program executions
+* Support for multiple file types (PDF, DOCX, TXT, PPTX, XLSX)
+* Configurable mapping between local directories and remote folder IDs
+* Multiple mapping methods (JSON file, command-line parameters)
+* Detailed logging of the synchronization process
+* Automatic selection of the appropriate parser engine based on file type
 
-- Python 3.6 oder höher
-- Folgende Python-Pakete:
-  - requests
-  - typing
+## Requirements
+
+* Python 3.6 or higher
+* The following Python packages:
+
+  * requests
+  * typing
 
 ## Installation
 
-1. Klonen Sie dieses Repository oder laden Sie die Datei herunter
-2. Installieren Sie die erforderlichen Abhängigkeiten:
-
-```
-
-### Regelmäßige Synchronisierung mit Cron-Job
-
-Verwenden Sie einen Cron-Job, um das Skript regelmäßig auszuführen und die Synchronisierung automatisch durchzuführen:
+1. Clone this repository or download the file
+2. Install the required dependencies:
 
 ```bash
-# Beispiel für einen Cron-Job, der stündlich ausgeführt wird
-0 * * * * /usr/bin/python3 /pfad/zum/file-uploader.py --base-url https://ihre-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL --mapping-file /pfad/zur/zuordnungen.json >> /var/log/file_sync.log 2>&1
+pip install requests
 ```
 
-## Fehlerbehebung
+### Regular Synchronization with Cron Job
 
-### Tracking-Datei zurücksetzen
+Use a cron job to run the script regularly and perform automatic synchronization:
 
-Wenn Sie die Synchronisierung komplett neu starten möchten, können Sie einfach die Tracking-Datei löschen:
+```bash
+# Example of a cron job that runs hourly
+0 * * * * /usr/bin/python3 /path/to/file-uploader.py --base-url https://your-instance.localmind.url --api-key YOUR_API_KEY --mapping-file /path/to/mappings.json >> /var/log/file_sync.log 2>&1
+```
+
+## Troubleshooting
+
+### Resetting the Tracking File
+
+If you want to completely restart synchronization, simply delete the tracking file:
 
 ```bash
 rm file_tracking.json
 ```
 
-### Häufige Probleme
+### Common Issues
 
-1. **Datei-Upload schlägt fehl**: 
-   - Überprüfen Sie die API-Verbindung
-   - Bestätigen Sie, dass der Dateityp unterstützt wird
-   - Überprüfen Sie, dass die Datei nicht zu groß ist
+1. **File upload fails**:
 
-2. **Fehlende Datei-IDs in der Tracking-Datei**:
-   - Dies kann passieren, wenn ein früherer Upload fehlgeschlagen ist
-   - Löschen Sie die Tracking-Datei, um einen vollständigen Neustart zu erzwingen
+   * Check the API connection
+   * Confirm that the file type is supported
+   * Ensure the file is not too large
 
-3. **SSL-Zertifikat-Probleme**:
-   - Verwenden Sie die Option `--verify-ssl`, wenn Sie mit einer vertrauenswürdigen Verbindung arbeiten
-   - Für Testzwecke können Sie auf die SSL-Verifizierung verzichten (Standardverhalten)
+2. **Missing file IDs in the tracking file**:
 
-## Technische Details
+   * This can happen if a previous upload failed
+   * Delete the tracking file to force a full restart
 
-### Änderungserkennung
+3. **SSL certificate issues**:
 
-Das Skript verwendet mehrere Methoden, um Dateiänderungen zu erkennen:
+   * Use the `--verify-ssl` option if you are working with a trusted connection
+   * For testing, you can skip SSL verification (default behavior)
 
-1. Zuerst wird die Dateigröße und der Änderungszeitstempel überprüft
-2. Wenn diese unverändert sind, wird ein MD5-Hash der Datei berechnet und mit dem gespeicherten Hash verglichen
-3. Nur wenn alle drei Überprüfungen identisch sind, wird die Datei als unverändert betrachtet
+## Technical Details
 
-### Remote API-Interaktionen
+### Change Detection
 
-Das Skript interagiert mit der Localmind API über folgende Endpunkte:
+The script uses several methods to detect file changes:
 
-- `POST /localmind/public-upload/file`: Hochladen neuer Dateien
-- `DELETE /localmind/public-upload/files`: Löschen von Dateien nach ID
-- `GET /localmind/public-upload/folders/{folder_id}/files`: Auflisten von Dateien in einem Ordnerbash
-pip install requests
-```
+1. First, it checks file size and modification timestamp
+2. If these are unchanged, it computes an MD5 hash of the file and compares it to the stored hash
+3. Only if all three checks are identical is the file considered unchanged
 
-## Verwendung
+### Remote API Interactions
 
-Das Skript kann auf verschiedene Weise konfiguriert werden, um lokale Verzeichnisse mit Remote-Ordnern zu synchronisieren:
+The script interacts with the Localmind API via the following endpoints:
 
-### 1. Verwendung einer JSON-Zuordnungsdatei
+* `POST /localmind/public-upload/file`: Upload new files
+* `DELETE /localmind/public-upload/files`: Delete files by ID
+* `GET /localmind/public-upload/folders/{folder_id}/files`: List files in a folder
 
-Erstellen Sie eine JSON-Datei mit Zuordnungen zwischen lokalen Pfaden und Remote-Ordner-IDs:
+## Usage
+
+The script can be configured in various ways to synchronize local directories with remote folders:
+
+### 1. Using a JSON Mapping File
+
+Create a JSON file with mappings between local paths and remote folder IDs:
 
 ```json
 {
-    "/pfad/zu/berichte_2023": "aaa44348-f11f-4829-bafc-e68bfeaa8003",
-    "/pfad/zu/rechnungen_2024": "9cf46791-dc7a-4d0c-b3ef-5a6259aa1975"
+    "/path/to/reports_2023": "aaa44348-f11f-4829-bafc-e68bfeaa8003",
+    "/path/to/invoices_2024": "9cf46791-dc7a-4d0c-b3ef-5a6259aa1975"
 }
 ```
 
-Führen Sie das Skript mit dieser Zuordnungsdatei aus:
+Run the script with this mapping file:
 
 ```bash
-python file-uploader.py --base-url https://ihre-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL --mapping-file zuordnungen.json --tracking-file meine_tracking_datei.json
+python file-uploader.py --base-url https://your-instance.localmind.url --api-key YOUR_API_KEY --mapping-file mappings.json --tracking-file my_tracking_file.json
 ```
 
-### 2. Zuordnungen über Kommandozeile
+### 2. Mappings via Command Line
 
-Definieren Sie Zuordnungen direkt über die Kommandozeile:
+Define mappings directly via the command line:
 
 ```bash
-python file-uploader.py --base-url https://ihre-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
-    --mapping /daten/präsentationen b8e941e5-a3e0-43a8-8c8f-778fb92ba4bb /pfad/zu/berichte_2023 aaa44348-f11f-4829-bafc-e68bfeaa8003 \
-    --mapping /pfad/zu/rechnungen_2024 9cf46791-dc7a-4d0c-b3ef-5a6259aa1975
+python file-uploader.py --base-url https://your-instance.localmind.url --api-key YOUR_API_KEY \
+    --mapping /data/presentations b8e941e5-a3e0-43a8-8c8f-778fb92ba4bb /path/to/reports_2023 aaa44348-f11f-4829-bafc-e68bfeaa8003 \
+    --mapping /path/to/invoices_2024 9cf46791-dc7a-4d0c-b3ef-5a6259aa1975
 ```
 
-### 3. Einzelne Verzeichniszuordnung
+### 3. Single Directory Mapping
 
-Für ein einzelnes Verzeichnis:
+For a single directory:
 
 ```bash
-python file-uploader.py --base-url https://ihre-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
-    --directory /pfad/zu/finanzberichte --folder-id aaa44348-f11f-4829-bafc-e68bfeaa8003
+python file-uploader.py --base-url https://your-instance.localmind.url --api-key YOUR_API_KEY \
+    --directory /path/to/financial_reports --folder-id aaa44348-f11f-4829-bafc-e68bfeaa8003
 ```
 
-## Zusätzliche Parameter
+## Additional Parameters
 
-- `--tracking-file`: Pfad zur JSON-Datei für das Tracking von Dateiänderungen (Standard: file_tracking.json)
-- `--verbose`: Aktiviert ausführliche Protokollierung
-- `--verify-ssl`: Überprüft SSL-Zertifikate (standardmäßig deaktiviert)
+* `--tracking-file`: Path to the JSON file for tracking file changes (default: file\_tracking.json)
+* `--verbose`: Enables verbose logging
+* `--verify-ssl`: Checks SSL certificates (disabled by default)
 
-## Protokollierung und Tracking
+## Logging and Tracking
 
-Das Skript erstellt folgende Dateien im aktuellen Verzeichnis:
-- `file_upload.log`: Enthält detaillierte Informationen über den Synchronisationsvorgang
-- `file_tracking.json` (oder angegebene Tracking-Datei): Speichert Informationen über synchronisierte Dateien zur Erkennung von Änderungen
+The script creates the following files in the current directory:
 
-## Parser-Engines
+* `file_upload.log`: Contains detailed information about the synchronization process
+* `file_tracking.json` (or specified tracking file): Stores information about synchronized files to detect changes
 
-- `ultraparse`: Wird für PDF, DOCX und PPTX verwendet
-- `tika`: Wird für andere unterstützte Formate verwendet
+## Parser Engines
 
-## Fehlerbehebung
+* `ultraparse`: Used for PDF, DOCX, and PPTX
+* `tika`: Used for other supported formats
 
-Bei Problemen überprüfen Sie:
-1. Ob die API-Basis-URL und der API-Schlüssel korrekt sind
-2. Ob die angegebenen lokalen Verzeichnisse existieren
-3. Die Protokolldatei für detaillierte Fehlermeldungen
+## Troubleshooting
 
-## Wie die Synchronisierung funktioniert
+If you encounter problems, check:
 
-1. **Tracking-Datei**: Das Skript verwendet eine JSON-Datei, um den Zustand aller synchronisierten Dateien zu speichern
-2. **Änderungserkennung**: Bei jedem Lauf werden folgende Überprüfungen durchgeführt:
-   - Dateigröße
-   - Änderungszeitstempel
-   - MD5-Hash des Dateiinhalts
-3. **Synchronisierungsprozess**:
-   - **Neue Dateien**: Werden hochgeladen und zur Tracking-Datei hinzugefügt
-   - **Geänderte Dateien**: Die alte Version wird gelöscht und die neue hochgeladen
-   - **Gelöschte Dateien**: Werden auch aus dem Remote-Ordner gelöscht
-   - **Unveränderte Dateien**: Werden übersprungen, um Bandbreite zu sparen
+1. Whether the API base URL and API key are correct
+2. Whether the specified local directories exist
+3. The log file for detailed error messages
 
-## Beispiele für typische Anwendungsfälle
+## How Synchronization Works
 
-### Synchronisierung von Jahresberichten
+1. **Tracking File**: The script uses a JSON file to store the state of all synchronized files
+2. **Change Detection**: On each run, the following checks are performed:
+
+   * File size
+   * Modification timestamp
+   * MD5 hash of the file contents
+3. **Synchronization Process**:
+
+   * **New files**: Are uploaded and added to the tracking file
+   * **Changed files**: The old version is deleted and the new one uploaded
+   * **Deleted files**: Are also deleted from the remote folder
+   * **Unchanged files**: Are skipped to save bandwidth
+
+## Example Use Cases
+
+### Synchronizing Annual Reports
 
 ```bash
-python file-uploader.py --base-url https://ihre-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
-    --mapping /daten/berichte/2023 aaa44348-f11f-4829-bafc-e68bfeaa8003 \
-    --mapping /daten/berichte/2024 9cf46791-dc7a-4d0c-b3ef-5a6259aa1975
+python file-uploader.py --base-url https://your-instance.localmind.url --api-key YOUR_API_KEY \
+    --mapping /data/reports/2023 aaa44348-f11f-4829-bafc-e68bfeaa8003 \
+    --mapping /data/reports/2024 9cf46791-dc7a-4d0c-b3ef-5a6259aa1975
 ```
 
-### Synchronisierung verschiedener Dokumententypen in unterschiedliche Ordner
+### Synchronizing Different Document Types into Different Folders
 
 ```bash
-python file-uploader.py --base-url https://ihre-instanz.localmind.url --api-key IHR_API_SCHLÜSSEL \
-    --mapping /daten/rechnungen f8c47ef2-b0e4-4f0b-bda6-725a263b2509 \
-    --mapping /daten/verträge d837154b-4513-4f67-81c3-99c4409e1d18 \
-    --mapping
+python file-uploader.py --base-url https://your-instance.localmind.url --api-key YOUR_API_KEY \
+    --mapping /data/invoices f8c47ef2-b0e4-4f0b-bda6-725a263b2509 \
+    --mapping /data/contracts d837154b-4513-4f67-81c3-99c4409e1d18 \
+    --mapping ...
+```
